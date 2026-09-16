@@ -72,7 +72,7 @@ def apify_webhook():
     </html>
     """
 
-    # 3. Disparando o E-mail via SMTP do Gmail
+    # 3. Disparando o E-mail via SMTP_SSL (Túnel Blindado)
     try:
         msg = MIMEMultipart()
         msg['From'] = EMAIL_SENDER
@@ -81,8 +81,8 @@ def apify_webhook():
         
         msg.attach(MIMEText(html_content, 'html'))
         
-        server = smtplib.SMTP('smtp.gmail.com', 587)
-        server.starttls()
+        # AQUI ESTÁ A CORREÇÃO TÁTICA:
+        server = smtplib.SMTP_SSL('smtp.gmail.com', 465)
         server.login(EMAIL_SENDER, EMAIL_PASSWORD)
         server.send_message(msg)
         server.quit()
