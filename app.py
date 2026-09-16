@@ -1,17 +1,13 @@
 import os
 import requests
-import smtplib
 from flask import Flask, request, jsonify
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
 
 app = Flask(__name__)
 
 # --- CHAVES DO COFRE ---
 APIFY_TOKEN = os.environ.get("APIFY_TOKEN")
-EMAIL_SENDER = os.environ.get("EMAIL_SENDER")
-EMAIL_PASSWORD = os.environ.get("EMAIL_PASSWORD")
 EMAIL_RECEIVER = os.environ.get("EMAIL_RECEIVER")
+# (EMAIL_SENDER e PASSWORD estão no Render, mas nem usaremos mais nesta tática)
 
 @app.route('/webhook/apify', methods=['POST'])
 def apify_webhook():
@@ -72,24 +68,24 @@ def apify_webhook():
     </html>
     """
 
-    # 3. Disparando o E-mail via SMTP_SSL (Túnel Blindado)
+    # 3. O BYPASS: Acionando o carteiro do Apify por um túnel livre
     try:
-        msg = MIMEMultipart()
-        msg['From'] = EMAIL_SENDER
-        msg['To'] = EMAIL_RECEIVER
-        msg['Subject'] = f"🎯 Dossiê de Prospecção: {len(leads)} alvos capturados"
+        print("[SISTEMA MAC] Acionando túnel HTTP para bypass do firewall do Render...")
+        apify_mail_url = f"https://api.apify.com/v2/acts/apify~send-mail/runs?token={APIFY_TOKEN}"
+        mail_payload = {
+            "to": EMAIL_RECEIVER,
+            "subject": f"🎯 Dossiê de Prospecção: {len(leads)} alvos capturados",
+            "html": html_content
+        }
+        mail_response = requests.post(apify_mail_url, json=mail_payload)
         
-        msg.attach(MIMEText(html_content, 'html'))
-        
-        # AQUI ESTÁ A CORREÇÃO TÁTICA:
-        server = smtplib.SMTP_SSL('smtp.gmail.com', 465)
-        server.login(EMAIL_SENDER, EMAIL_PASSWORD)
-        server.send_message(msg)
-        server.quit()
-        
-        print("[SISTEMA MAC] Dossiê ejetado com sucesso para a base (E-mail)!")
+        if mail_response.status_code in [200, 201]:
+            print("[SISTEMA MAC] Dossiê ejetado com sucesso! Bypass concluído.")
+        else:
+            print(f"[ERRO CRÍTICO] Falha na API de email do Apify: {mail_response.text}")
+            
     except Exception as e:
-        print(f"[ERRO CRÍTICO] Falha ao enviar dossiê: {e}")
+        print(f"[ERRO CRÍTICO] Falha ao acionar Bypass: {e}")
         return jsonify({"error": "Falha no disparo do e-mail"}), 500
 
     return jsonify({"status": "sucesso"}), 200
