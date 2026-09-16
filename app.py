@@ -1,100 +1,98 @@
-from flask import Flask, request, jsonify
-import requests
 import os
+import requests
+import smtplib
+from flask import Flask, request, jsonify
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
 app = Flask(__name__)
 
-# ==========================================
-# VARIÁVEIS DE AMBIENTE (CHAVES DE SEGURANÇA)
-# ==========================================
+# --- CHAVES DO COFRE ---
 APIFY_TOKEN = os.environ.get("APIFY_TOKEN")
-APOLLO_API_KEY = os.environ.get("APOLLO_API_KEY")
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
-WHATSAPP_API_URL = os.environ.get("WHATSAPP_API_URL")
-WHATSAPP_TOKEN = os.environ.get("WHATSAPP_TOKEN")
+EMAIL_SENDER = os.environ.get("EMAIL_SENDER")
+EMAIL_PASSWORD = os.environ.get("EMAIL_PASSWORD")
+EMAIL_RECEIVER = os.environ.get("EMAIL_RECEIVER")
 
-# ==========================================
-# MÓDULOS DE INTELIGÊNCIA
-# ==========================================
-def enriquecer_contato_apollo(dominio):
-    url = "https://api.apollo.io/v1/organizations/enrich"
-    headers = {"Cache-Control": "no-cache", "Content-Type": "application/json"}
-    payload = {"api_key": APOLLO_API_KEY, "domain": dominio}
-    try:
-        response = requests.post(url, headers=headers, json=payload).json()
-        ceo_name = response['organization']['primary_contact']['name']
-        ceo_phone = response['organization']['primary_contact']['mobile_number']
-        return ceo_name, ceo_phone
-    except:
-        return None, None
-
-def juiz_cognitivo_openai(dados_empresa):
-    url = "https://api.openai.com/v1/chat/completions"
-    headers = {"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"}
-    prompt = f"Analise a empresa: {dados_empresa}. Critérios: 1. Mais de 2 unidades confirmadas? 2. CEO identificado? Responda EXATAMENTE com 'TRUE' (aprovado) ou 'FALSE' (lixo)."
-    payload = {
-        "model": "gpt-4o",
-        "messages": [{"role": "system", "content": "Você é o Mac, engenheiro implacável da SellOut Academy."},
-                     {"role": "user", "content": prompt}],
-        "temperature": 0.1
-    }
-    try:
-        response = requests.post(url, headers=headers, json=payload).json()
-        decisao = response['choices'][0]['message']['content'].strip()
-        return "TRUE" in decisao
-    except:
-        return False
-
-def disparar_ataque_whatsapp(telefone, mensagem):
-    if not WHATSAPP_API_URL or not WHATSAPP_TOKEN:
-        print("[AVISO] Chaves do WhatsApp não configuradas. Disparo ignorado.")
-        return
-    headers = {"Authorization": f"Bearer {WHATSAPP_TOKEN}", "Content-Type": "application/json"}
-    payload = {"phone": telefone, "text": mensagem}
-    requests.post(WHATSAPP_API_URL, headers=headers, json=payload)
-
-# ==========================================
-# ROTA DO SERVIDOR (WEBHOOK PARA O APIFY)
-# ==========================================
 @app.route('/webhook/apify', methods=['POST'])
-def receber_dados_apify():
-    print("[SISTEMA MAC] Webhook acionado. Duto aberto.")
+def apify_webhook():
+    data = request.json
     
-    dados_recebidos = request.json
-    run_id = dados_recebidos.get('eventData', {}).get('actorRunId')
+    resource = data.get('resource', {})
+    default_dataset_id = resource.get('defaultDatasetId')
     
-    if not run_id:
-        return jsonify({"status": "erro", "mensagem": "Run ID não encontrado"}), 400
+    if not default_dataset_id:
+        return jsonify({"error": "Dataset ID ausente"}), 400
+
+    print(f"[SISTEMA MAC] Extraindo dados do Dataset: {default_dataset_id}")
+    
+    # 1. Sugando a lista do Apify
+    url = f"https://api.apify.com/v2/datasets/{default_dataset_id}/items?token={APIFY_TOKEN}"
+    response = requests.get(url)
+    
+    if response.status_code != 200:
+        print("[ERRO] Falha de comunicação com Apify.")
+        return jsonify({"error": "Falha no Apify"}), 500
+
+    leads = response.json()
+    print(f"[SISTEMA MAC] {len(leads)} alvos confirmados. Montando Dossiê Tático...")
+
+    # 2. Montando a estrutura visual do E-mail
+    html_content = f"""
+    <html>
+    <body style="font-family: Helvetica, Arial, sans-serif; color: #333; line-height: 1.6;">
+        <h2 style="color: #000; border-bottom: 2px solid #d32f2f; padding-bottom: 5px;">Relatório Tático de Caçada (Bullet Prospector)</h2>
+        <p>A varredura foi concluída com sucesso. Aqui está o dossiê dos <b>{len(leads)} alvos</b> capturados:</p>
+        <br>
+    """
+
+    for lead in leads:
+        name = lead.get('title', 'Nome não identificado')
+        phone = lead.get('phoneUnformatted', lead.get('phone', 'Sem telefone no mapa'))
+        address = lead.get('address', 'Endereço não cadastrado')
+        rating = lead.get('totalScore', 'N/A')
+        reviews = lead.get('reviewsCount', 0)
+        website = lead.get('website', 'Sem site')
         
-    print(f"[PROCESSANDO] Sugando dados do Run ID: {run_id}")
-    url_extracao = f"https://api.apify.com/v2/actor-runs/{run_id}/dataset/items?token={APIFY_TOKEN}"
-    response = requests.get(url_extracao)
-    
-    if response.status_code == 200:
-        leads = response.json()
-        alvos_atingidos = 0
+        html_content += f"""
+        <div style="background-color: #f9f9f9; padding: 15px; margin-bottom: 15px; border-left: 4px solid #d32f2f;">
+            <h3 style="margin-top: 0; color: #000;">{name}</h3>
+            <p style="margin: 5px 0;"><strong>📞 Telefone:</strong> {phone}</p>
+            <p style="margin: 5px 0;"><strong>📍 Endereço:</strong> {address}</p>
+            <p style="margin: 5px 0;"><strong>⭐ Nota do Local:</strong> {rating} ({reviews} avaliações)</p>
+            <p style="margin: 5px 0;"><strong>🌐 Site:</strong> <a href="{website}" style="color: #004aad;">{website}</a></p>
+        </div>
+        """
+
+    html_content += """
+        <br>
+        <p style="font-size: 11px; color: #777; border-top: 1px solid #ddd; padding-top: 10px;">
+            Gerado automaticamente por Mac - Engenharia de Escala.
+        </p>
+    </body>
+    </html>
+    """
+
+    # 3. Disparando o E-mail via SMTP do Gmail
+    try:
+        msg = MIMEMultipart()
+        msg['From'] = EMAIL_SENDER
+        msg['To'] = EMAIL_RECEIVER
+        msg['Subject'] = f"🎯 Dossiê de Prospecção: {len(leads)} alvos capturados"
         
-        for lead in leads:
-            dominio = lead.get("website")
-            if not dominio:
-                continue
-                
-            ceo_nome, ceo_telefone = enriquecer_contato_apollo(dominio)
-            if ceo_nome and ceo_telefone:
-                lead['ceo_nome'] = ceo_nome
-                lead['ceo_telefone'] = ceo_telefone
-                
-                if juiz_cognitivo_openai(lead):
-                    print(f"[SCORE 5] Diamante Negro: {lead.get('title', dominio)}")
-                    # Script de Ataque Hormozi simplificado para injeção inicial
-                    msg_ataque = f"Olá {ceo_nome}, identificamos gargalos na expansão própria da sua rede. A SellOut Academy tem o modelo para estruturar isso via franquia. Tem agenda essa semana?"
-                    disparar_ataque_whatsapp(ceo_telefone, msg_ataque)
-                    alvos_atingidos += 1
-                    
-        return jsonify({"status": "sucesso", "alvos_processados": alvos_atingidos}), 200
-    else:
-        return jsonify({"status": "erro", "mensagem": "Falha na extração do Apify"}), 500
+        msg.attach(MIMEText(html_content, 'html'))
+        
+        server = smtplib.SMTP('smtp.gmail.com', 587)
+        server.starttls()
+        server.login(EMAIL_SENDER, EMAIL_PASSWORD)
+        server.send_message(msg)
+        server.quit()
+        
+        print("[SISTEMA MAC] Dossiê ejetado com sucesso para a base (E-mail)!")
+    except Exception as e:
+        print(f"[ERRO CRÍTICO] Falha ao enviar dossiê: {e}")
+        return jsonify({"error": "Falha no disparo do e-mail"}), 500
+
+    return jsonify({"status": "sucesso"}), 200
 
 if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=port)
+    app.run(host='0.0.0.0', port=10000)
