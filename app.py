@@ -12,43 +12,31 @@ EMAIL_RECEIVER = os.environ.get("EMAIL_RECEIVER")
 
 # --- A GRANDE MURALHA (BLACKLIST MULTI-SETORIAL) ---
 BLACKLIST = [
-    # Alimentação e Fast Food
     "mcdonald", "burger king", "subway", "bob's", "bobs", "madero", "kfc", "giraffas", "outback", "habib",
     "cacau show", "china in box", "spoleto", "dominos", "domino's", "pizza hut", "coco bambu", "jerônimo", "jeronimo",
-    
-    # Educação
     "microlins", "kumon", "wizard", "fisk", "ccaa", "yázigi", "yazigi", "cna", "minds", "influx", 
     "senai", "senac", "sesi", "fatec", "etec", "grau técnico", "grau tecnico", "cebrac", "embelleze",
     "prepara", "faculdade", "universidade", "unip", "estácio", "estacio", "anhanguera", "mackenzie", "myrobot",
-    
-    # Estética, Beleza e Academias
     "smart fit", "smartfit", "skyfit", "bluefit", "panobianco", "pratique", "selfit", "gavioes", "gaviões",
     "espaço laser", "espaçolaser", "laser fast", "emagrecentro", "giorgio", "sobrancelhas design", "giolaser", "onodera",
-    
-    # Perfumaria
     "boticário", "boticario", "natura", "avon", "quem disse", "água de cheiro", "agua de cheiro", "l'occitane", "loccitane",
-    
-    # Sorveterias
     "chiquinho", "bacio di latte", "oggi", "sr sorvete", "los paleteros", "ice cream roll",
-    
-    # Lavanderias
     "5asec", "5àsec", "lavateria", "dryclean usa", "prima clean", "quality lavanderia",
-    
-    # Tintas
     "coral", "suvinil", "decor colors", "tintas mc", "lukscolor",
-    
-    # Pet Shop
     "petz", "cobasi", "petland", "zee.dog", "zeedog",
-    
-    # Energia
     "hcc energia", "portal solar", "blue sol", "solar prime",
-    
-    # Automotivos, Barbearia e Serviços Gerais
     "bosch", "localiza", "unidas", "movida", "mercadocar", "dpk", "porto seguro", "getninjas", "corleone", "seu elias"
 ]
 
-# --- LISTA NEGRA 2: FILTRO SEMÂNTICO (CONCEITOS) ---
+# --- FILTROS SEMÂNTICOS ---
 TERMOS_FRANQUIA = ["franquia", "franchising", "franqueado", "seja um franqueado"]
+
+# NOVO ESCUDO: Destrói escolas governamentais e prefeituras
+TERMOS_PUBLICOS = [
+    "escola estadual", "escola municipal", " e.e ", " e.e. ", " e.m ", " e.m. ", 
+    "emef", "emei", " c.e.i ", "cei ", "colegio estadual", "colégio estadual", 
+    "prefeitura", "governo do estado", "centro de educação infantil"
+]
 
 def normalize_name(name):
     name = re.split(r'[-|,]', name)[0]
@@ -112,9 +100,15 @@ def apify_webhook():
             leads_descartados += 1
             continue
             
-        # FILTRO 2: Destrói se a DESCRIÇÃO ou NOME contiver indícios de ser franquia
-        texto_analise = (name + " " + description).lower()
+        texto_analise = (" " + name + " " + description + " ").lower()
+        
+        # FILTRO 2: Destrói Franquias
         if any(termo in texto_analise for termo in TERMOS_FRANQUIA):
+            leads_descartados += 1
+            continue
+
+        # FILTRO 3: Destrói Órgãos Públicos (NOVO)
+        if any(termo in texto_analise for termo in TERMOS_PUBLICOS):
             leads_descartados += 1
             continue
 
@@ -131,8 +125,8 @@ def apify_webhook():
     <html>
     <body style="font-family: Helvetica, Arial, sans-serif; color: #333; line-height: 1.6;">
         <h2 style="color: #000; border-bottom: 2px solid #000; padding-bottom: 5px;">Relatório Black (Foco Exclusivo)</h2>
-        <p>Varredura hiperfocada. <b>{leads_descartados} leads sujos (franquias e ruídos) incinerados.</b></p>
-        <p>Abaixo, apenas as operações que possuem entre 2 e 4 unidades:</p>
+        <p>Varredura hiperfocada. <b>{leads_descartados} leads sujos (franquias, ruídos e órgãos públicos) incinerados.</b></p>
+        <p>Abaixo, apenas as operações privadas que possuem entre 2 e 4 unidades:</p>
         <br>
     """
 
@@ -175,7 +169,7 @@ def apify_webhook():
         apify_mail_url = f"https://api.apify.com/v2/acts/apify~send-mail/runs?token={APIFY_TOKEN}"
         mail_payload = {
             "to": EMAIL_RECEIVER,
-            "subject": f"💎 Dossiê BLACK: {len(redes_locais)} Diamantes Detectados",
+            "subject": f"💎 Dossiê BLACK: {len(redes_locais)} Diamantes Privados",
             "html": html_content
         }
         requests.post(apify_mail_url, json=mail_payload)
