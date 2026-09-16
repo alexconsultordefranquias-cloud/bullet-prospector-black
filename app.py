@@ -15,27 +15,44 @@ def normalize_name(name):
     name = re.split(r'[-|,]', name)[0]
     return name.strip().lower()
 
-# --- ARMA 1: GERADOR DE LINK WHATSAPP ---
 def gerar_link_whatsapp(phone_str):
     if not phone_str or phone_str == 'Sem telefone' or phone_str == 'Sem telefone no mapa':
         return None
-    # Extrai apenas os números
     numeros = re.sub(r'\D', '', phone_str)
     if len(numeros) >= 10:
-        # Adiciona o código do Brasil se não existir
         if not numeros.startswith('55'):
             numeros = f"55{numeros}"
         return f"https://wa.me/{numeros}"
     return None
 
-# --- ARMA 2 (ESTRUTURA): BUSCADOR DE SÓCIOS DA RECEITA FEDERAL ---
+# --- ARMA 2: EXTRATOR DE SÓCIOS (QSA - RECEITA FEDERAL) ---
 def buscar_decisor(nome_empresa):
     """
-    COMPARTIMENTO BLINDADO: A requisição HTTP para a API de CNPJ será injetada aqui.
-    O compartimento já está estruturado para isolar falhas e não estourar o Timeout do Render.
+    Tenta localizar o CNPJ e o Quadro de Sócios pelo nome.
+    Protegido com timeout de 3 segundos para não explodir o servidor do Render.
     """
-    # A integração da API real de CNPJ entrará no próximo passo tático.
-    return "🕵️‍♂️ [Radar de Sócios Preparado para Integração]"
+    termo_busca = nome_empresa.replace(' ', '+')
+    url_busca = f"https://minhareceita.org/{termo_busca}" # API Pública de busca
+    
+    try:
+        # Dá o tiro rápido (3 segundos no máximo)
+        resposta = requests.get(url_busca, timeout=3)
+        if resposta.status_code == 200:
+            dados = resposta.json()
+            # Se for uma lista de empresas, pega a primeira
+            if isinstance(dados, list) and len(dados) > 0:
+                qsa = dados[0].get('qsa', [])
+                if qsa:
+                    nomes_socios = [socio.get('nome_socio', '').title() for socio in qsa]
+                    return f"🕵️‍♂️ Sócios (Receita): {', '.join(nomes_socios)}"
+            return "🕵️‍♂️ Sócios: Dados não abertos no portal público."
+        else:
+            return "🕵️‍♂️ Sócios: Requer chave de API premium para busca avançada."
+            
+    except requests.exceptions.Timeout:
+        return "🕵️‍♂️ Sócios: Base da Receita lenta. Busca abortada para salvar o Dossiê."
+    except Exception as e:
+        return "🕵️‍♂️ Sócios: Falha no radar de CNPJ."
 
 @app.route('/webhook/apify', methods=['POST'])
 def apify_webhook():
@@ -47,7 +64,6 @@ def apify_webhook():
         return jsonify({"error": "Dataset ID ausente"}), 400
 
     print(f"[SISTEMA MAC] Extraindo dados do Dataset: {default_dataset_id}")
-    
     url = f"https://api.apify.com/v2/datasets/{default_dataset_id}/items?token={APIFY_TOKEN}"
     response = requests.get(url)
     
@@ -55,7 +71,7 @@ def apify_webhook():
         return jsonify({"error": "Falha no Apify"}), 500
 
     raw_leads = response.json()
-    print(f"[SISTEMA MAC] {len(raw_leads)} alvos processados. Aplicando enriquecimento...")
+    print(f"[SISTEMA MAC] {len(raw_leads)} alvos processados. Iniciando varredura Blade...")
 
     grouped_leads = defaultdict(list)
     leads_descartados = 0
@@ -74,25 +90,25 @@ def apify_webhook():
     html_content = f"""
     <html>
     <body style="font-family: Helvetica, Arial, sans-serif; color: #333; line-height: 1.6;">
-        <h2 style="color: #000; border-bottom: 2px solid #004aad; padding-bottom: 5px;">Relatório de Expansão (Bullet Prospector 2.5)</h2>
-        <p>A inteligência artificial filtrou <b>{leads_descartados} operações de mega-franquias</b> e enriqueceu os contatos.</p>
+        <h2 style="color: #000; border-bottom: 2px solid #000; padding-bottom: 5px;">Relatório de Expansão (Blade Mode)</h2>
+        <p>A inteligência artificial filtrou <b>{leads_descartados} operações descartadas</b> e enriqueceu os contatos restantes.</p>
         <br>
     """
 
     # BLOCO 1: REDES LOCAIS (ALTO POTENCIAL)
     if redes_locais:
         html_content += """
-        <div style="background-color: #ffebee; padding: 10px; border-left: 5px solid #d32f2f; margin-bottom: 20px;">
-            <h3 style="color: #d32f2f; margin: 0;">🚨 REDES LOCAIS DETECTADAS (ALTO POTENCIAL)</h3>
+        <div style="background-color: #000; padding: 10px; border-left: 5px solid #d4af37; margin-bottom: 20px;">
+            <h3 style="color: #d4af37; margin: 0;">💎 DIAMANTES DETECTADOS (2 a 4 Unidades)</h3>
         </div>
         """
         for rede_name, unidades in redes_locais.items():
             nome_formatado = unidades[0].get('title').split('-')[0].split(',')[0].strip().upper()
             html_content += f"<h4 style='color: #000; margin-bottom: 5px;'>🏢 {nome_formatado} ({len(unidades)} Unidades)</h4>"
             
-            # Chamando a função de Sócio/Decisor
+            # ATIVANDO O RASTREADOR DE SÓCIOS APENAS PARA OS DIAMANTES (Para poupar o servidor)
             decisor = buscar_decisor(nome_formatado)
-            html_content += f"<p style='margin: 0 0 10px 15px; font-size: 13px; color: #555;'>{decisor}</p>"
+            html_content += f"<p style='margin: 0 0 10px 15px; font-size: 13px; color: #8b0000; font-weight: bold;'>{decisor}</p>"
 
             for lead in unidades:
                 phone = lead.get('phoneUnformatted', lead.get('phone', 'Sem telefone'))
@@ -100,7 +116,6 @@ def apify_webhook():
                 rating = lead.get('totalScore', 'N/A')
                 website = lead.get('website', 'Sem site')
                 
-                # Gerador Visual do Botão de WhatsApp
                 wpp_link = gerar_link_whatsapp(phone)
                 wpp_btn = f"<a href='{wpp_link}' style='background-color: #25D366; color: white; padding: 4px 8px; text-decoration: none; border-radius: 4px; font-size: 12px; margin-left: 10px;'>💬 Chamar no Whats</a>" if wpp_link else ""
 
@@ -108,14 +123,14 @@ def apify_webhook():
                 <div style="background-color: #fff; border: 1px solid #ccc; padding: 10px; margin-bottom: 10px; margin-left: 15px;">
                     <p style="margin: 2px 0; font-size: 14px;"><strong>📍 Unidade:</strong> {address}</p>
                     <p style="margin: 2px 0; font-size: 14px;"><strong>📞 Tel:</strong> {phone} {wpp_btn}</p>
-                    <p style="margin: 2px 0; font-size: 14px;"><strong>⭐ Nota:</strong> {rating} | <strong>🌐 Site:</strong> <a href="{website}">{website}</a></p>
+                    <p style="margin: 2px 0; font-size: 14px;"><strong>⭐ Nota:</strong> {rating} | <strong>🌐 Link:</strong> <a href="{website}">{website}</a></p>
                 </div>
                 """
         html_content += "<hr style='border: 1px solid #eee; margin: 30px 0;'>"
 
     # BLOCO 2: UNIDADES INDIVIDUAIS
     html_content += """
-    <h3 style="color: #004aad;">📍 Unidades Individuais Independentes</h3>
+    <h3 style="color: #555;">📍 Unidades Individuais (Aquecimento)</h3>
     """
     for lead_list in unidades_unicas.values():
         lead = lead_list[0]
@@ -123,25 +138,17 @@ def apify_webhook():
         phone = lead.get('phoneUnformatted', lead.get('phone', 'Sem telefone'))
         address = lead.get('address', 'Endereço não cadastrado')
         rating = lead.get('totalScore', 'N/A')
-        website = lead.get('website', 'Sem site')
         
         wpp_link = gerar_link_whatsapp(phone)
         wpp_btn = f"<a href='{wpp_link}' style='background-color: #25D366; color: white; padding: 4px 8px; text-decoration: none; border-radius: 4px; font-size: 12px; margin-left: 10px;'>💬 Chamar</a>" if wpp_link else ""
 
         html_content += f"""
-        <div style="background-color: #f9f9f9; padding: 10px; margin-bottom: 10px; border-left: 4px solid #004aad;">
-            <h4 style="margin-top: 0; margin-bottom: 5px; color: #000;">{name}</h4>
-            <p style="margin: 2px 0; font-size: 14px;"><strong>📞 Tel:</strong> {phone} {wpp_btn}</p>
-            <p style="margin: 2px 0; font-size: 14px;"><strong>📍 End:</strong> {address}</p>
-            <p style="margin: 2px 0; font-size: 14px;"><strong>⭐ Nota:</strong> {rating} | <strong>🌐 Site:</strong> <a href="{website}">{website}</a></p>
+        <div style="background-color: #f9f9f9; padding: 10px; margin-bottom: 10px; border-left: 4px solid #777;">
+            <p style="margin: 2px 0; font-size: 14px;"><strong>{name}</strong> | {phone} {wpp_btn} | Nota: {rating}</p>
         </div>
         """
 
     html_content += """
-        <br>
-        <p style="font-size: 11px; color: #777; border-top: 1px solid #ddd; padding-top: 10px;">
-            Inteligência de Expansão | Bullet Prospector
-        </p>
     </body>
     </html>
     """
@@ -150,13 +157,12 @@ def apify_webhook():
         apify_mail_url = f"https://api.apify.com/v2/acts/apify~send-mail/runs?token={APIFY_TOKEN}"
         mail_payload = {
             "to": EMAIL_RECEIVER,
-            "subject": f"🔥 Dossiê 2.5 (Enriquecido): {len(redes_locais)} Redes + {len(unidades_unicas)} Individuais",
+            "subject": f"🎯 Dossiê BLADE: {len(redes_locais)} Diamantes Detectados",
             "html": html_content
         }
         requests.post(apify_mail_url, json=mail_payload)
-        print("[SISTEMA MAC] Dossiê 2.5 ejetado com sucesso!")
+        print("[SISTEMA MAC] Dossiê Blade ejetado com sucesso!")
     except Exception as e:
-        print(f"[ERRO CRÍTICO] Falha no Bypass: {e}")
         return jsonify({"error": "Falha no envio"}), 500
 
     return jsonify({"status": "sucesso"}), 200
