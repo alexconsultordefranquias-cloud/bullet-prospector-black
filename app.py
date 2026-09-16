@@ -9,7 +9,13 @@ app = Flask(__name__)
 # --- CHAVES DO COFRE ---
 APIFY_TOKEN = os.environ.get("APIFY_TOKEN")
 EMAIL_RECEIVER = os.environ.get("EMAIL_RECEIVER")
-BLACKLIST = ["mcdonald", "burger king", "subway", "bob's", "bobs", "madero", "kfc", "giraffas", "outback", "habib"]
+
+# --- LISTA NEGRA EXPANDIDA (ALIMENTAÇÃO, ACADEMIAS E ESTÉTICA) ---
+BLACKLIST = [
+    "mcdonald", "burger king", "subway", "bob's", "bobs", "madero", "kfc", "giraffas", "outback", "habib",
+    "smart fit", "smartfit", "skyfit", "bluefit", "panobianco", "pratique", "selfit", 
+    "espaço laser", "espaçolaser", "laser fast", "emagrecentro", "giorgio"
+]
 
 def normalize_name(name):
     name = re.split(r'[-|,]', name)[0]
@@ -32,14 +38,12 @@ def buscar_decisor(nome_empresa):
     Protegido com timeout de 3 segundos para não explodir o servidor do Render.
     """
     termo_busca = nome_empresa.replace(' ', '+')
-    url_busca = f"https://minhareceita.org/{termo_busca}" # API Pública de busca
+    url_busca = f"https://minhareceita.org/{termo_busca}"
     
     try:
-        # Dá o tiro rápido (3 segundos no máximo)
         resposta = requests.get(url_busca, timeout=3)
         if resposta.status_code == 200:
             dados = resposta.json()
-            # Se for uma lista de empresas, pega a primeira
             if isinstance(dados, list) and len(dados) > 0:
                 qsa = dados[0].get('qsa', [])
                 if qsa:
@@ -78,6 +82,7 @@ def apify_webhook():
 
     for lead in raw_leads:
         name = lead.get('title', 'Sem Nome')
+        # Filtro letal: se tiver na BLACKLIST, destrói o lead
         if any(bad in name.lower() for bad in BLACKLIST):
             leads_descartados += 1
             continue
@@ -91,7 +96,7 @@ def apify_webhook():
     <html>
     <body style="font-family: Helvetica, Arial, sans-serif; color: #333; line-height: 1.6;">
         <h2 style="color: #000; border-bottom: 2px solid #000; padding-bottom: 5px;">Relatório de Expansão (Blade Mode)</h2>
-        <p>A inteligência artificial filtrou <b>{leads_descartados} operações descartadas</b> e enriqueceu os contatos restantes.</p>
+        <p>A inteligência artificial filtrou <b>{leads_descartados} operações descartadas (Mega-Franquias)</b> e enriqueceu os contatos restantes.</p>
         <br>
     """
 
@@ -106,7 +111,6 @@ def apify_webhook():
             nome_formatado = unidades[0].get('title').split('-')[0].split(',')[0].strip().upper()
             html_content += f"<h4 style='color: #000; margin-bottom: 5px;'>🏢 {nome_formatado} ({len(unidades)} Unidades)</h4>"
             
-            # ATIVANDO O RASTREADOR DE SÓCIOS APENAS PARA OS DIAMANTES (Para poupar o servidor)
             decisor = buscar_decisor(nome_formatado)
             html_content += f"<p style='margin: 0 0 10px 15px; font-size: 13px; color: #8b0000; font-weight: bold;'>{decisor}</p>"
 
